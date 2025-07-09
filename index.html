@@ -1,0 +1,88 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>Object Recognition with Arduino</title>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@teachablemachine/image"></script>
+  <style>
+    body { font-family: sans-serif; text-align: center; }
+    video { border: 2px solid #333; width: 300px; height: 300px; }
+    h1 { font-size: 24px; margin-top: 10px; }
+    button { margin-top: 10px; padding: 10px; font-size: 18px; }
+  </style>
+</head>
+<body>
+
+<h1 id="result">Loading...</h1>
+<video autoplay playsinline muted></video><br>
+<button onclick="connectSerial()">Connect to Arduino</button>
+
+<script>
+const MODEL_URL = "./";  // if model is in the same folder
+
+let model, webcam, labelContainer, maxPredictions;
+let port, writer;
+
+async function init() {
+  const modelURL = MODEL_URL + "model.json";
+  const metadataURL = MODEL_URL + "metadata.json";
+  model = await tmImage.load(modelURL, metadataURL);
+  webcam = new tmImage.Webcam(300, 300, true);
+  await webcam.setup();
+  await webcam.play();
+  window.requestAnimationFrame(loop);
+  document.querySelector("video").srcObject = webcam.webcam;
+  maxPredictions = model.getTotalClasses();
+}
+
+async function loop() {
+  webcam.update();
+  await predict();
+  window.requestAnimationFrame(loop);
+}
+
+let lastLabel = "";
+
+async function predict() {
+  const prediction = await model.predict(webcam.canvas);
+  let best = prediction[0];
+
+  for (let p of prediction) {
+    if (p.probability > best.probability) best = p;
+  }
+
+  document.getElementById("result").innerText = best.className;
+
+  // If label changes, send to Arduino
+  if (best.className !== lastLabel && best.probability > 0.85) {
+    lastLabel = best.className;
+    sendToArduino(best.className);
+  }
+}
+
+async function connectSerial() {
+  try {
+    port = await navigator.serial.requestPort();
+    await port.open({ baudRate: 9600 });
+    writer = port.writable.getWriter();
+    alert("Serial connected!");
+  } catch (err) {
+    alert("Failed to connect: " + err);
+  }
+}
+
+async function sendToArduino(text) {
+  if (writer) {
+    const data = new TextEncoder().encode(text + "\n");
+    await writer.write(data);
+    console.log("Sent to Arduino:", text);
+  }
+}
+
+init();
+</script>
+
+</body>
+</html>
